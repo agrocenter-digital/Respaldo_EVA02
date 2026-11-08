@@ -1,0 +1,181 @@
+name: agrocenter-digital
+
+services:
+  # Base de Datos Relacional PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: agrocenter-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
+      POSTGRES_DB: ${POSTGRES_DB:-db_inventario}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - agrocenter-network
+
+  # Apache Kafka en modo KRaft
+  kafka:
+    image: apache/kafka:latest
+    container_name: agrocenter-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT'
+      KAFKA_LISTENERS: 'PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks:
+      - agrocenter-network
+
+  # Microservicio de Inventario (Build Local)
+  ms-inventario:
+    build:
+      context: ./ms-inventarios
+      dockerfile: Dockerfile
+    image: agrocenter/ms-inventario:local
+    container_name: agrocenter-ms-inventario
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8081
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_URL: jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/db_inventario
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "${INVENTARIO_PORT:-8081}:8081"
+    networks:
+      - agrocenter-network
+
+  # Microservicio de Ventas (Build Local)
+  ms-ventas:
+    build:
+      context: ./ms-ventas
+      dockerfile: Dockerfile
+    image: agrocenter/ms-ventas:local
+    container_name: agrocenter-ms-ventas
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ms-inventario:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8082
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_URL: jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/db_ventas
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "${VENTAS_PORT:-8082}:8082"
+    networks:
+      - agrocenter-network
+
+  # Microservicio de Compras (Build Local)
+  ms-compras:
+    build:
+      context: ./ms-compras
+      dockerfile: Dockerfile
+    image: agrocenter/ms-compras:local
+    container_name: agrocenter-ms-compras
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ms-inventario:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8083
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      DB_URL: jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/db_compras
+      DB_USERNAME: ${POSTGRES_USER:-postgres}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "${COMPRAS_PORT:-8083}:8083"
+    networks:
+      - agrocenter-network
+
+  # BFF Web (Build Local)
+  bff-web:
+    build:
+      context: ./bff-web
+      dockerfile: Dockerfile
+    image: agrocenter/bff-web:local
+    container_name: agrocenter-bff-web
+    restart: unless-stopped
+    init: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ms-inventario:
+        condition: service_started
+      ms-ventas:
+        condition: service_started
+      ms-compras:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+    environment:
+      SERVER_PORT: 8080
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/db_bff
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
+      INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
+      SALES_SERVICE_URL: ${SALES_SERVICE_URL:-http://ms-ventas:8082}
+      PURCHASES_SERVICE_URL: ${PURCHASES_SERVICE_URL:-http://ms-compras:8083}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    ports:
+      - "${BFF_PORT:-8080}:8080"
+    networks:
+      - agrocenter-network
+
+volumes:
+  postgres-data:
+    name: agrocenter-postgres-data
+
+networks:
+  agrocenter-network:
+    name: agrocenter-network
+    driver: bridge
