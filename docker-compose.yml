@@ -213,6 +213,8 @@ services:
       args:
         # Vacío = llamadas relativas (/api/...); Nginx las proxya al BFF interno.
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+        # URL pública de la EC2 para metadata/Open Graph del sitio estático.
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
     image: agrocenter/front-web:local
     container_name: agrocenter-front-web
     restart: unless-stopped
