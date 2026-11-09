@@ -2,12 +2,12 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS build
 WORKDIR /workspace
 
 COPY pom.xml ./
-RUN mvn -q -DskipTests dependency:go-offline
+RUN mvn -B dependency:go-offline
 
 COPY src ./src
-RUN mvn -q -DskipTests clean package
+RUN mvn -B clean package -DskipTests
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:21-jre-alpine AS runtime
 RUN addgroup -S agrocenter && adduser -S agrocenter -G agrocenter
 WORKDIR /app
 

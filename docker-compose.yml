@@ -14,6 +14,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init-databases.sh:/docker-entrypoint-initdb.d/01-init-databases.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -43,19 +44,23 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      CLUSTER_ID: ${KAFKA_CLUSTER_ID:-MkU3OEVBNTcwNTJENDM2Qk}
+    volumes:
+      - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - agrocenter-network
 
   # Microservicio de Inventario (Build Local)
   ms-inventario:
     build:
-      context: ./ms-inventarios
+      context: ./ms-inventario
       dockerfile: Dockerfile
     image: agrocenter/ms-inventario:local
     container_name: agrocenter-ms-inventario
@@ -72,7 +77,14 @@ services:
       DB_URL: jdbc:postgresql://${DB_HOST:-postgres}:${DB_PORT:-5432}/db_inventario
       DB_USERNAME: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      CATALOG_QUOTE_ONLY_SKUS: ${CATALOG_QUOTE_ONLY_SKUS:-}
+      COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J}
+      COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J/.well-known/jwks.json}
+      COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-agrocenter-api}
+      DEV_JWT_SECRET: ${DEV_JWT_SECRET:-}
+      DEV_JWT_ISSUER: ${DEV_JWT_ISSUER:-http://localhost:8081/dev-issuer}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
     ports:
       - "${INVENTARIO_PORT:-8081}:8081"
     networks:
@@ -101,7 +113,13 @@ services:
       DB_USERNAME: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
       INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J}
+      COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J/.well-known/jwks.json}
+      COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-agrocenter-api}
+      DEV_JWT_SECRET: ${DEV_JWT_SECRET:-}
+      DEV_JWT_ISSUER: ${DEV_JWT_ISSUER:-http://localhost:8081/dev-issuer}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
     ports:
       - "${VENTAS_PORT:-8082}:8082"
     networks:
@@ -130,7 +148,14 @@ services:
       DB_USERNAME: ${POSTGRES_USER:-postgres}
       DB_PASSWORD: ${POSTGRES_PASSWORD:?Configura POSTGRES_PASSWORD en tu archivo .env}
       INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      COMPRAS_AUTO_PROVEEDOR_ID: ${COMPRAS_AUTO_PROVEEDOR_ID:-1}
+      COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J}
+      COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J/.well-known/jwks.json}
+      COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-agrocenter-api}
+      DEV_JWT_SECRET: ${DEV_JWT_SECRET:-}
+      DEV_JWT_ISSUER: ${DEV_JWT_ISSUER:-http://localhost:8081/dev-issuer}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
     ports:
       - "${COMPRAS_PORT:-8083}:8083"
     networks:
@@ -165,15 +190,51 @@ services:
       INVENTORY_SERVICE_URL: ${INVENTORY_SERVICE_URL:-http://ms-inventario:8081}
       SALES_SERVICE_URL: ${SALES_SERVICE_URL:-http://ms-ventas:8082}
       PURCHASES_SERVICE_URL: ${PURCHASES_SERVICE_URL:-http://ms-compras:8083}
-      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
+      COGNITO_ISSUER_URI: ${COGNITO_ISSUER_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J}
+      COGNITO_JWK_SET_URI: ${COGNITO_JWK_SET_URI:-https://cognito-idp.us-east-1.amazonaws.com/us-east-1_DBCBjL67J/.well-known/jwks.json}
+      COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-agrocenter-api}
+      DEV_JWT_SECRET: ${DEV_JWT_SECRET:-}
+      DEV_JWT_ISSUER: ${DEV_JWT_ISSUER:-http://localhost:8081/dev-issuer}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost,http://127.0.0.1:3000,http://127.0.0.1}
+      ALLOWED_ORIGIN_PATTERNS: ${ALLOWED_ORIGIN_PATTERNS:-}
+      KAFKA_TOPICS: ${KAFKA_TOPICS:-ordenes-compras,inventario-critico}
+      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
     ports:
       - "${BFF_PORT:-8080}:8080"
+    networks:
+      - agrocenter-network
+
+  # Frontend estático servido con Nginx (mismo host EC2)
+  front-web:
+    build:
+      context: ./front-web
+      dockerfile: Dockerfile
+      args:
+        # Vacío = llamadas relativas (/api/...); Nginx las proxya al BFF interno.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
+    image: agrocenter/front-web:local
+    container_name: agrocenter-front-web
+    restart: unless-stopped
+    depends_on:
+      bff-web:
+        condition: service_started
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
     networks:
       - agrocenter-network
 
 volumes:
   postgres-data:
     name: agrocenter-postgres-data
+  kafka-data:
+    name: agrocenter-kafka-data
 
 networks:
   agrocenter-network:

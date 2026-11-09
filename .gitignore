@@ -1,0 +1,8 @@
+# Secretos locales (Docker Compose)
+.env
+.env.*
+!.env.example
+
+# Artefactos de build
+target/
+*.log

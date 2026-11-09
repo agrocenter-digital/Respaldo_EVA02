@@ -1,32 +1,76 @@
-import { readAuthSession } from "./cognito";
+import { getAuthToken, isTokenExpired, readAuthSession } from "./cognito";
 
-const isBrowser = typeof window !== "undefined";
-
-const API_BASE_URL = (
-  process.env.BACKEND_INTERNAL_URL ||
+export const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_BASE_URL ||
   process.env.NEXT_PUBLIC_API_URL ||
   ""
 ).replace(/\/$/, "");
 
+export class HttpError extends Error {
+  status: number;
+  data: any;
+  responseBody?: string;
+
+  constructor(message: string, status: number, data?: any, responseBody?: string) {
+    super(message);
+    this.name = "HttpError";
+    this.status = status;
+    this.data = data;
+    this.responseBody = responseBody;
+  }
+}
+
 export async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const session = readAuthSession();
+  const method = (options.method || "GET").toUpperCase();
+  const isWriteMethod = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  const isProtectedEndpoint =
+    cleanEndpoint.includes("/bff/inventario") ||
+    cleanEndpoint.includes("/bff/admin") ||
+    cleanEndpoint.includes("/bff/compras");
+
+  // 1. Obtener y validar el token activo (desde URL, storage, o fallback dev)
+  let activeToken = getAuthToken();
+
+  // Si no se obtuvo de getAuthToken, intentar desde readAuthSession
+  if (!activeToken) {
+    const session = readAuthSession();
+    activeToken = session?.accessToken || session?.idToken || null;
+    if (activeToken) {
+      activeToken = activeToken.replace(/^Bearer\s+/i, "").replace(/^"|"$/g, "").trim();
+    }
+  }
+
+  // 2. Control de sesión y autorización previa al envío
+  if (!activeToken && (isWriteMethod || isProtectedEndpoint)) {
+    throw new HttpError(
+      "Operación no autorizada: No se encontró un token de autenticación Bearer activo. Por favor ingresa tu token antes de guardar.",
+      401
+    );
+  }
+
+  if (activeToken && isTokenExpired(activeToken)) {
+    throw new HttpError(
+      "Sesión expirada: El token de autenticación ha caducado. Por favor renueva tu token de sesión.",
+      401
+    );
+  }
+
+  // 3. Preparación de encabezados HTTP con inyección obligatoria del token
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
 
-  // Se prioriza el accessToken requerido por los Resource Servers (CognitoTokenUseValidator exige token_use: "access")
-  const token = session?.accessToken || session?.idToken;
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
+  if (activeToken) {
+    // Inyección forzosa para evitar que viaje anónima o con token vacío
+    headers["Authorization"] = `Bearer ${activeToken}`;
   }
 
   // Garantizar idempotency-key para solicitudes POST hacia el BFF si no viene provista
-  const method = (options.method || "GET").toUpperCase();
   if (method === "POST" && !headers["Idempotency-Key"] && !headers["idempotency-key"]) {
     headers["Idempotency-Key"] =
       typeof crypto !== "undefined" && crypto.randomUUID
@@ -34,29 +78,55 @@ export async function apiRequest<T>(
         : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  const cleanEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
-
-  // En el navegador siempre se utiliza la ruta relativa /api/... para que Vercel
-  // gestione la petición mediante Rewrites (proxy inverso interno) y evite Mixed Content.
-  const targetUrl = isBrowser ? cleanEndpoint : `${API_BASE_URL}${cleanEndpoint}`;
-
+  // En modo local/EC2 el frontend y el BFF comparten host (Nginx proxea /api al BFF).
+  // Las URLs relativas funcionan tanto en servidor Nginx como en SSR de Next.js.
+  const targetUrl = `${API_BASE_URL}${cleanEndpoint}`;
   const response = await fetch(targetUrl, {
     ...options,
     headers,
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
-    const errorMessage =
-      errorData?.message ||
-      errorData?.error ||
-      `Error ${response.status}: ${response.statusText || "Forbidden"}`;
-    throw new Error(errorMessage);
+    const errorBody = await response.text();
+    let errorMessage = `Error HTTP ${response.status} (${response.statusText || "Error"})`;
+    let parsedData: any = null;
+
+    try {
+      parsedData = JSON.parse(errorBody);
+      if (Array.isArray(parsedData?.errors) && parsedData.errors.length > 0) {
+        const fieldErrors = parsedData.errors
+          .map((e: any) => (e.field ? `${e.field}: ${e.defaultMessage || e.message}` : e.defaultMessage || e.message))
+          .join(" | ");
+        errorMessage = `Error de validación (${response.status}): ${fieldErrors}`;
+      } else {
+        errorMessage =
+          parsedData?.message ||
+          parsedData?.error ||
+          parsedData?.detail ||
+          errorMessage;
+      }
+    } catch {
+      if (errorBody && errorBody.length < 300) {
+        errorMessage = `Error HTTP ${response.status}: ${errorBody}`;
+      }
+    }
+
+    throw new HttpError(errorMessage, response.status, parsedData, errorBody);
   }
 
-  if (response.status === 204 || response.headers.get("content-length") === "0") {
-    return undefined as T;
+  // Si la respuesta es 204 No Content o no tiene body
+  if (response.status === 204) {
+    return null as T;
   }
 
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  if (!text || text.trim() === "") {
+    return null as T;
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return text as unknown as T;
+  }
 }
