@@ -37,7 +37,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { AuthSession, isUserAdmin, readAuthSession } from "@/lib/cognito";
+import { AuthSession, adoptSessionFromUrl, getAuthToken, isUserAdmin, readAuthSession } from "@/lib/cognito";
 import { apiRequest } from "@/lib/api";
 import MessagingAdmin from "./components/MessagingAdmin";
 import ConsultasB2BAdmin from "./components/ConsultasB2BAdmin";
@@ -397,7 +397,8 @@ export default function AdminPage() {
   const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
-    const currentSession = readAuthSession();
+    // Primero se adopta el access token propagado en la URL; luego storage.
+    const currentSession = adoptSessionFromUrl() ?? readAuthSession();
     setSession(currentSession);
     loadInventory(currentSession);
     loadSales();
@@ -419,8 +420,7 @@ export default function AdminPage() {
         : `/${endpointConfig.endpoint}`;
       const url = cleanEndpoint;
 
-      const activeSession = session || readAuthSession();
-      const token = activeSession?.accessToken || activeSession?.idToken;
+      const token = getAuthToken();
       const headers: Record<string, string> = {
         Accept: "application/json",
       };
@@ -901,7 +901,7 @@ export default function AdminPage() {
       const url = cleanEndpoint;
 
       const activeSession = session || readAuthSession();
-      const token = activeSession?.accessToken || activeSession?.idToken;
+      const token = activeSession?.accessToken;
       const headers: Record<string, string> = {
         Accept: "application/json",
       };

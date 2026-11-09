@@ -196,8 +196,8 @@ services:
       COGNITO_AUDIENCE: ${COGNITO_AUDIENCE:-agrocenter-api}
       DEV_JWT_SECRET: ${DEV_JWT_SECRET:-}
       DEV_JWT_ISSUER: ${DEV_JWT_ISSUER:-http://localhost:8081/dev-issuer}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost,http://127.0.0.1:3000,http://127.0.0.1}
-      ALLOWED_ORIGIN_PATTERNS: ${ALLOWED_ORIGIN_PATTERNS:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://front-web-seven.vercel.app,http://44.195.118.58:3000,http://34.195.64.174:3000,http://localhost:3000,http://localhost,http://127.0.0.1:3000,http://127.0.0.1}
+      ALLOWED_ORIGIN_PATTERNS: ${ALLOWED_ORIGIN_PATTERNS:-https://*.vercel.app}
       KAFKA_TOPICS: ${KAFKA_TOPICS:-ordenes-compras,inventario-critico}
       SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
     ports:
@@ -215,6 +215,11 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-}
         # URL pública de la EC2 para metadata/Open Graph del sitio estático.
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+        NEXT_PUBLIC_COGNITO_DOMAIN: ${NEXT_PUBLIC_COGNITO_DOMAIN:-}
+        NEXT_PUBLIC_COGNITO_CLIENT_ID: ${NEXT_PUBLIC_COGNITO_CLIENT_ID:-}
+        NEXT_PUBLIC_COGNITO_REDIRECT_URI: ${NEXT_PUBLIC_COGNITO_REDIRECT_URI:-}
+        # Solo desarrollo local; en producción debe quedar vacío.
+        NEXT_PUBLIC_DEV_JWT_FALLBACK_TOKEN: ${NEXT_PUBLIC_DEV_JWT_FALLBACK_TOKEN:-}
     image: agrocenter/front-web:local
     container_name: agrocenter-front-web
     restart: unless-stopped

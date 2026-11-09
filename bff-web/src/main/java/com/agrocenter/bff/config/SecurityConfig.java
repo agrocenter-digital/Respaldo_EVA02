@@ -108,6 +108,10 @@ public class SecurityConfig {
         if (patterns.isEmpty()) {
             // Despliegue local en EC2: el frontend Nginx corre en el mismo host (puerto 3000)
             patterns = List.of(
+                    "https://front-web-seven.vercel.app",
+                    "https://*.vercel.app",
+                    "http://44.195.118.58:3000",
+                    "http://34.195.64.174:3000",
                     "http://localhost:3000",
                     "http://localhost:80",
                     "http://localhost",
